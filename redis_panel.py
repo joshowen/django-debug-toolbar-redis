@@ -1,18 +1,19 @@
-import os
-import time
 import operator
+import os
+from redis import Redis as OriginalRedis, StrictRedis as OriginalStrictRedis
+import redis
+import time
 
+from debug_toolbar.panels import Panel
+from debug_toolbar.utils import get_stack, tidy_stacktrace
 from django.conf import settings
-from django.template import Template, Context
 from django.dispatch import Signal
-from django.utils.translation import ugettext_lazy as _, ungettext
+from django.template.base import Template
+from django.template.context import Context
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
-
-from debug_toolbar.utils import get_stack, tidy_stacktrace
-from debug_toolbar.panels import DebugPanel
-from redis import Redis, StrictRedis
-from redis.client import BasePipeline
+from django.utils.translation import ugettext_lazy as _, ungettext
+from redis.client import BasePipeline, Pipeline as OriginalPipeline, StrictPipeline as OriginalStrictPipeline
 
 
 __all__ = ['redis_call', 'TrackingRedisMixin', 'TrackingRedis',
@@ -29,16 +30,16 @@ class TrackingRedisBase(object):
         debug_config = getattr(settings, 'DEBUG_TOOLBAR_CONFIG', {})
         enable_stack = debug_config.get('ENABLE_STACKTRACES', True)
 
-        trace =  enable_stack and tidy_stacktrace(reversed(get_stack()))[:-depth-1] or []
+        trace = enable_stack and tidy_stacktrace(reversed(get_stack()))[:-depth - 1] or []
 
         # prepare arguments for display
         arguments = map(repr, args[2:])
         options = map(lambda (k, v): "%s=%s" % (k, repr(v)), kwargs.items())
 
-        return { 'function': args[0],
-                 'key': len(args) > 1 and args[1] or '',
-                 'args': ' , '.join(arguments + options),
-                 'trace': trace }
+        return {'function': args[0],
+                'key': len(args) > 1 and args[1] or '',
+                'args': ' , '.join(arguments + options),
+                'trace': trace}
 
 
 class TrackingRedisMixin(TrackingRedisBase):
@@ -48,7 +49,7 @@ class TrackingRedisMixin(TrackingRedisBase):
         try:
             start = time.time()
             ret = super(TrackingRedisMixin, self).execute_command(func_name,
-                    *args, **kwargs)
+                                                                  *args, **kwargs)
             call['return'] = unicode(ret)
         finally:
             stop = time.time()
@@ -57,6 +58,7 @@ class TrackingRedisMixin(TrackingRedisBase):
             redis_call.send_robust(sender=self, duration=duration, calls=(call,))
 
         return ret
+
 
 class BaseTrackingPipeline(TrackingRedisBase, BasePipeline):
     def execute(self, *args, **kw):
@@ -80,32 +82,31 @@ class BaseTrackingPipeline(TrackingRedisBase, BasePipeline):
         return ret
 
 
-class TrackingRedis(TrackingRedisMixin, Redis):
+class TrackingRedis(TrackingRedisMixin, OriginalRedis):
     def pipeline(self, transaction=False, shard_hint=None):
-        return TrackingPipeline(
-                self.connection_pool,
-                self.response_callbacks,
-                transaction,
-                shard_hint,
-            )
+        return TrackingPipeline(self.connection_pool,
+                                self.response_callbacks,
+                                transaction,
+                                shard_hint)
 
-class StrictTrackingRedis(TrackingRedisMixin, StrictRedis):
+
+class StrictTrackingRedis(TrackingRedisMixin, OriginalStrictRedis):
     def pipeline(self, transaction=False, shard_hint=None):
-        return StrictTrackingPipeline(
-                self.connection_pool,
-                self.response_callbacks,
-                transaction,
-                shard_hint,
-            )
+        return StrictTrackingPipeline(self.connection_pool,
+                                      self.response_callbacks,
+                                      transaction,
+                                      shard_hint,)
 
-class TrackingPipeline(BaseTrackingPipeline, Redis):
-    pass
 
-class StrictTrackingPipeline(BaseTrackingPipeline, StrictRedis):
+class TrackingPipeline(BaseTrackingPipeline, OriginalRedis):
     pass
 
 
-class RedisPanel(DebugPanel):
+class StrictTrackingPipeline(BaseTrackingPipeline, OriginalStrictRedis):
+    pass
+
+
+class RedisPanel(Panel):
     name = 'Redis'
     has_content = True
 
@@ -134,19 +135,29 @@ class RedisPanel(DebugPanel):
     def url(self):
         return ''
 
+    @property
     def content(self):
         debug_config = getattr(settings, 'DEBUG_TOOLBAR_CONFIG', {})
         enable_stack = debug_config.get('ENABLE_STACKTRACES', True)
-        context = {
-                'calls': self.calls,
-                'commands': {},
-                'enable_stack': enable_stack
-        }
+        context = {'calls': self.calls,
+                   'commands': {},
+                   'enable_stack': enable_stack}
         for tr in self.calls:
             for call in tr['calls']:
-                context['commands'][call['function']] = \
-                        context['commands'].get(call['function'], 0) + 1
+                context['commands'][call['function']] = context['commands'].get(call['function'], 0) + 1
         return Template(template).render(Context(context))
+
+    def enable_instrumentation(self):
+        redis.Redis = TrackingRedis
+        redis.StrictRedis = StrictTrackingRedis
+        redis.client.Pipeline = TrackingPipeline
+        redis.client.StrictPipeline = StrictTrackingPipeline
+
+    def disable_instrumentation(self):
+        redis.Redis = OriginalRedis
+        redis.StrictRedis = OriginalStrictRedis
+        redis.client.Pipeline = OriginalPipeline
+        redis.client.StrictPipeline = OriginalStrictPipeline
 
 
 def render_stacktrace(trace):

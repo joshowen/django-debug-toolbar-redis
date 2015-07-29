@@ -3,3 +3,7 @@
 .*.sw?
 *.bak
 .DS_Store
+
+.project
+
+.pydevproject
