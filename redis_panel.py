@@ -1,3 +1,4 @@
+from itertools import chain
 import operator
 import os
 from redis import Redis as OriginalRedis, StrictRedis as OriginalStrictRedis
@@ -38,7 +39,7 @@ class TrackingRedisBase(object):
 
         return {'function': args[0],
                 'key': len(args) > 1 and args[1] or '',
-                'args': ' , '.join(arguments + options),
+                'args': ' , '.join(chain(arguments, options)),
                 'trace': trace}
 
 
