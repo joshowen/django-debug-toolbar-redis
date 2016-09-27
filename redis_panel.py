@@ -34,7 +34,7 @@ class TrackingRedisBase(object):
 
         # prepare arguments for display
         arguments = map(repr, args[2:])
-        options = map(lambda (k, v): "%s=%s" % (k, repr(v)), kwargs.items())
+        options = map(lambda k, v: "%s=%s" % (k, repr(v)), kwargs.items())
 
         return {'function': args[0],
                 'key': len(args) > 1 and args[1] or '',
@@ -50,7 +50,7 @@ class TrackingRedisMixin(TrackingRedisBase):
             start = time.time()
             ret = super(TrackingRedisMixin, self).execute_command(func_name,
                                                                   *args, **kwargs)
-            call['return'] = unicode(ret)
+            call['return'] = str(ret)
         finally:
             stop = time.time()
             duration = (stop - start) * 1000
@@ -72,7 +72,7 @@ class BaseTrackingPipeline(TrackingRedisBase, BasePipeline):
             ret = super(BaseTrackingPipeline, self).execute(*args, **kw)
 
             for i, call in enumerate(tr['calls']):
-                call['return'] = unicode(ret[i])
+                call['return'] = str(ret[i])
         finally:
             stop = time.time()
             tr['duration'] = (stop - start) * 1000
