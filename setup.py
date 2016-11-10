@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='django-debug-toolbar-redis',
-    version='0.0.3',
+    version='0.0.3.1',
     description='Simple debug toolbar panel for Redis',
     #long_description=open('README.md').read(),
     author='Clement Nodet',
